@@ -267,6 +267,18 @@
             border-color: #FCD34D;
         }
 
+        .task-item.verbal-flag {
+            background: #FFEDD5;
+            border: 2px dashed #FB923C;
+        }
+
+        .verbal-flag-note {
+            color: #C2410C;
+            font-size: 0.75rem;
+            font-weight: 500;
+            margin-top: 3px;
+        }
+
         .task-text {
             flex: 1;
             font-size: 0.92rem;
@@ -419,6 +431,11 @@
         .timeline-event.dopamine {
             background: #FCE7F3;
             border-left-color: #EC4899;
+        }
+
+        .timeline-event.verbal-flag {
+            background: #FFEDD5;
+            border-left-color: #FB923C;
         }
 
         .timeline-event.completed {
@@ -795,12 +812,16 @@
             }
             
             // Deep work (90+ min)
-            const deepKeywords = ['build', 'code', 'develop', 'design', 'create', 'research', 
+            const deepKeywords = ['build', 'code', 'develop', 'design', 'create', 'research',
                                   'deep work', 'project', 'presentation', 'analyze'];
             if (deepKeywords.some(kw => lowerText.includes(kw))) return 90;
-            
-            // No default - returns undefined if no pattern matches
-            return undefined;
+
+            // No keyword match - fall back based on estimated energy so tasks
+            // don't all collapse to the same default duration
+            const energy = estimateEnergy(text);
+            if (energy === 1) return 15;
+            if (energy === 3) return 60;
+            return 30;
         }
 
         // AI: Estimate energy required (1=Low, 2=Medium, 3=High)
@@ -820,6 +841,14 @@
             
             // Medium energy (2) - default
             return 2;
+        }
+
+        // Detect tasks that require talking out loud (phone calls, etc.)
+        function isVerbalTask(text) {
+            const lowerText = text.toLowerCase();
+            const verbalKeywords = ['call', 'phone', 'ring up', 'voicemail',
+                                    'speak to', 'speak with', 'talk to', 'talk with'];
+            return verbalKeywords.some(kw => lowerText.includes(kw));
         }
 
         // Get energy label
@@ -1073,14 +1102,16 @@
                 
                 const energyLabel = getEnergyLabel(task.energyRequired);
                 const priorityLabel = task.priority === 'important' ? 'Important' : 'Flexible';
-                
+                const flaggedVerbal = communicationMode === 'nonverbal' && isVerbalTask(task.text);
+
                 return `
-                <div class="task-item ${task.priority}" role="listitem">
+                <div class="task-item ${task.priority} ${flaggedVerbal ? 'verbal-flag' : ''}" role="listitem">
                     <div class="task-text">
-                        <span aria-label="Task: ${task.text}, estimated ${task.duration} minutes, ${energyLabel} energy required">${task.text}</span>
+                        <span aria-label="Task: ${task.text}, estimated ${task.duration} minutes, ${energyLabel} energy required${flaggedVerbal ? ', requires talking' : ''}">${task.text}</span>
                         <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 3px;" aria-hidden="true">
                             ⏱️ ${task.duration} min • ⚡ ${energyLabel} energy
                         </div>
+                        ${flaggedVerbal ? `<div class="verbal-flag-note" role="status">🔇 Requires talking — consider rescheduling to a day you can talk</div>` : ''}
                     </div>
                     <div class="priority-toggle ${task.priority === 'flexible' ? 'flexible-selected' : 'important-selected'}" 
                         onclick="togglePriority(${task.id})"
@@ -1186,9 +1217,10 @@
                     
                     totalUsed += taskDuration;
                     currentTime = end + 15; // 15 min break
-                } else {
-                    break;
                 }
+                // else: this task doesn't fit right now - skip it and keep
+                // trying the remaining (possibly smaller) tasks instead of
+                // stopping the whole schedule
             }
 
             // Sort schedule by start time
@@ -1227,21 +1259,22 @@
                         const energyLabel = getEnergyLabel(event.task.energyRequired || 2);
                         const taskId = event.task.id;
                         const isCompleted = event.task.completed ? 'true' : 'false';
-                        const taskClass = event.task.dopamine ? 'dopamine' : event.task.priority;
+                        const flaggedVerbal = communicationMode === 'nonverbal' && isVerbalTask(event.task.text);
+                        const taskClass = flaggedVerbal ? 'verbal-flag' : (event.task.dopamine ? 'dopamine' : event.task.priority);
                         html += `
-                            <div class="timeline-event ${taskClass} ${event.task.completed ? 'completed' : ''}" 
-                                draggable="true" 
+                            <div class="timeline-event ${taskClass} ${event.task.completed ? 'completed' : ''}"
+                                draggable="true"
                                 role="button"
                                 tabindex="0"
-                                aria-label="Task: ${event.task.text}, ${event.startTimeStr} to ${event.endTimeStr}, ${event.duration} minutes, ${energyLabel} energy. Drag to move or press space to toggle completion."
+                                aria-label="Task: ${event.task.text}, ${event.startTimeStr} to ${event.endTimeStr}, ${event.duration} minutes, ${energyLabel} energy${flaggedVerbal ? ', requires talking' : ''}. Drag to move or press space to toggle completion."
                                 aria-grabbed="false"
                                 ondragstart="handleDragStart(event, ${taskId})"
                                 ondragend="handleDragEnd(event)"
                                 onkeydown="handleTaskKeydown(event, ${taskId})">
-                                <input type="checkbox" 
-                                    class="timeline-checkbox" 
+                                <input type="checkbox"
+                                    class="timeline-checkbox"
                                     id="task-checkbox-${taskId}"
-                                    ${event.task.completed ? 'checked' : ''} 
+                                    ${event.task.completed ? 'checked' : ''}
                                     onchange="toggleTaskComplete(${taskId})"
                                     onclick="event.stopPropagation()"
                                     aria-label="Mark ${event.task.text} as ${event.task.completed ? 'incomplete' : 'complete'}">
@@ -1250,6 +1283,7 @@
                                     <div class="timeline-event-time">
                                         ${event.startTimeStr} - ${event.endTimeStr} • ${event.duration} min • ⚡ ${energyLabel}
                                     </div>
+                                    ${flaggedVerbal ? `<div class="verbal-flag-note" role="status">🔇 Requires talking — consider rescheduling</div>` : ''}
                                 </div>
                             </div>
                         `;
@@ -1314,6 +1348,10 @@
                     textInputArea.setAttribute('aria-hidden', 'true');
                 }
             }
+
+            // Refresh highlights for tasks that require talking (e.g. phone calls)
+            renderTasks();
+            generateSchedule();
             saveData();
         }
 
