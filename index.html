@@ -1322,8 +1322,10 @@
                 return;
             }
 
-            // Always show 9am to 9pm (full day view)
-            const minHour = 9;
+            // Always show 8am to 9pm (full day view) - 8am covers the
+            // earliest possible auto-schedule start (High energy starts at 8am),
+            // so no scheduled task is ever hidden above the visible range
+            const minHour = 8;
             const maxHour = 21; // 9pm
 
             let html = '';
