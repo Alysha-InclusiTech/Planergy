@@ -1627,11 +1627,16 @@
 
                 recognition.onresult = (event) => {
                     let fullTranscript = '';
-                    
+
                     for (let i = 0; i < event.results.length; i++) {
                         fullTranscript += event.results[i][0].transcript + '. ';
                     }
-                    
+
+                    // Spoken task lists often use "and" to join tasks instead of a pause
+                    // (e.g. "edit post and call my mom") - break those onto separate lines
+                    // so they're split into separate tasks like typed multi-line input.
+                    fullTranscript = fullTranscript.replace(/\s+and\s+/gi, '\n');
+
                     const textArea = document.getElementById('taskInput');
                     textArea.value = fullTranscript.trim();
                 };
@@ -1664,7 +1669,7 @@
                 recognition.stop();
                 btn.classList.remove('recording');
                 btn.setAttribute('aria-pressed', 'false');
-                btn.setAttribute('aria-label', 'Start voice recording. Click to record your tasks using your microphone.');
+                btn.setAttribute('aria-label', 'Start voice recording. Click to stop recording.');
                 
                 const area = document.getElementById('textInputArea');
                 area.classList.add('active');
