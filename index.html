@@ -285,6 +285,59 @@
             color: var(--text);
         }
 
+        .task-meta {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 4px;
+            flex-wrap: wrap;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .duration-select {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 2px 4px;
+            cursor: pointer;
+        }
+
+        .energy-toggle {
+            display: flex;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
+
+        .energy-toggle-option {
+            padding: 2px 8px;
+            font-size: 0.72rem;
+            font-weight: 500;
+            border: none;
+            background: var(--surface);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .energy-toggle-option.low.active {
+            background: #10B981;
+            color: white;
+        }
+
+        .energy-toggle-option.medium.active {
+            background: #F59E0B;
+            color: white;
+        }
+
+        .energy-toggle-option.high.active {
+            background: #EF4444;
+            color: white;
+        }
+
         .priority-toggle {
             display: flex;
             border-radius: 8px;
@@ -793,8 +846,8 @@
             if (veryQuickPhrases.some(phrase => lowerText.includes(phrase))) return 5;
             
             // Quick tasks (10 min)
-            const quickKeywords = ['email', 'reply', 'text', 'message', 'pay', 'confirm', 
-                                   'snack', 'check', 'quick'];
+            const quickKeywords = ['email', 'reply', 'text', 'message', 'pay', 'confirm',
+                                   'snack', 'check', 'quick', 'call', 'phone'];
             if (quickKeywords.some(kw => lowerText.includes(kw))) return 10;
             
             // Light tasks (15-25 min)
@@ -849,6 +902,32 @@
             const verbalKeywords = ['call', 'phone', 'ring up', 'voicemail',
                                     'speak to', 'speak with', 'talk to', 'talk with'];
             return verbalKeywords.some(kw => lowerText.includes(kw));
+        }
+
+        function durationOptionsHtml(current) {
+            const presets = [5, 10, 15, 20, 30, 45, 60, 90];
+            const options = presets.includes(current) ? presets : [...presets, current].sort((a, b) => a - b);
+            return options.map(min => `<option value="${min}" ${min === current ? 'selected' : ''}>${min} min</option>`).join('');
+        }
+
+        function setTaskDuration(id, minutes) {
+            const task = tasks.find(t => t.id === id);
+            if (task) {
+                task.duration = parseInt(minutes, 10);
+                renderTasks();
+                generateSchedule();
+                saveData();
+            }
+        }
+
+        function setTaskEnergy(id, level) {
+            const task = tasks.find(t => t.id === id);
+            if (task) {
+                task.energyRequired = level;
+                renderTasks();
+                generateSchedule();
+                saveData();
+            }
         }
 
         // Get energy label
@@ -1108,8 +1187,20 @@
                 <div class="task-item ${task.priority} ${flaggedVerbal ? 'verbal-flag' : ''}" role="listitem">
                     <div class="task-text">
                         <span aria-label="Task: ${task.text}, estimated ${task.duration} minutes, ${energyLabel} energy required${flaggedVerbal ? ', requires talking' : ''}">${task.text}</span>
-                        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 3px;" aria-hidden="true">
-                            ⏱️ ${task.duration} min • ⚡ ${energyLabel} energy
+                        <div class="task-meta">
+                            <span aria-hidden="true">⏱️</span>
+                            <select class="duration-select"
+                                onclick="event.stopPropagation()"
+                                onchange="setTaskDuration(${task.id}, this.value)"
+                                aria-label="Change estimated duration for ${task.text}">
+                                ${durationOptionsHtml(task.duration)}
+                            </select>
+                            <span aria-hidden="true">⚡</span>
+                            <div class="energy-toggle" role="group" aria-label="Change energy level for ${task.text}">
+                                <button type="button" class="energy-toggle-option low ${task.energyRequired === 1 ? 'active' : ''}" onclick="event.stopPropagation(); setTaskEnergy(${task.id}, 1)" aria-pressed="${task.energyRequired === 1}">Low</button>
+                                <button type="button" class="energy-toggle-option medium ${task.energyRequired === 2 ? 'active' : ''}" onclick="event.stopPropagation(); setTaskEnergy(${task.id}, 2)" aria-pressed="${task.energyRequired === 2}">Med</button>
+                                <button type="button" class="energy-toggle-option high ${task.energyRequired === 3 ? 'active' : ''}" onclick="event.stopPropagation(); setTaskEnergy(${task.id}, 3)" aria-pressed="${task.energyRequired === 3}">High</button>
+                            </div>
                         </div>
                         ${flaggedVerbal ? `<div class="verbal-flag-note" role="status">🔇 Requires talking — consider rescheduling to a day you can talk</div>` : ''}
                     </div>
