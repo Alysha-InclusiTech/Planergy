@@ -837,37 +837,45 @@
             { id: 'dop10', text: 'Take a relaxing shower/bath', duration: 20 }
         ];
 
+        // Match a keyword as a whole word (not as a substring of a longer word),
+        // so e.g. "call" doesn't match inside "recall" or "file" inside "profile".
+        // Multi-word phrases already have natural boundaries via their spaces.
+        function matchesKeyword(lowerText, keyword) {
+            if (keyword.includes(' ')) return lowerText.includes(keyword);
+            return new RegExp(`\\b${keyword}\\b`).test(lowerText);
+        }
+
         // AI: Estimate task duration based on keywords
         function estimateMinutes(text) {
             const lowerText = text.toLowerCase();
-            
+
             // Very quick tasks (5 min) - check phrases first
             const veryQuickPhrases = ['drink water', 'drinking water', 'water break', 'quick break'];
-            if (veryQuickPhrases.some(phrase => lowerText.includes(phrase))) return 5;
-            
+            if (veryQuickPhrases.some(phrase => matchesKeyword(lowerText, phrase))) return 5;
+
             // Quick tasks (10 min)
             const quickKeywords = ['email', 'reply', 'text', 'message', 'pay', 'confirm',
                                    'snack', 'check', 'quick', 'call', 'phone'];
-            if (quickKeywords.some(kw => lowerText.includes(kw))) return 10;
-            
+            if (quickKeywords.some(kw => matchesKeyword(lowerText, kw))) return 10;
+
             // Light tasks (15-25 min)
-            const lightKeywords = ['tidy', 'clean', 'shower', 'prep', 'prepare', 'walk', 
+            const lightKeywords = ['tidy', 'clean', 'shower', 'prep', 'prepare', 'walk',
                                    'stretch', 'organize', 'sort', 'file'];
-            if (lightKeywords.some(kw => lowerText.includes(kw))) return 20;
-            
+            if (lightKeywords.some(kw => matchesKeyword(lowerText, kw))) return 20;
+
             // Medium tasks (30-50 min)
-            const mediumKeywords = ['meeting', 'lunch', 'dinner', 'cook', 'plan', 'write', 
+            const mediumKeywords = ['meeting', 'lunch', 'dinner', 'cook', 'plan', 'write',
                                     'report', 'record', 'review', 'read', 'study', 'pack', 'packing'];
-            if (mediumKeywords.some(kw => lowerText.includes(kw))) {
+            if (mediumKeywords.some(kw => matchesKeyword(lowerText, kw))) {
                 // Packing tasks are typically 40 minutes
-                if (lowerText.includes('pack') || lowerText.includes('packing')) return 40;
+                if (matchesKeyword(lowerText, 'pack') || matchesKeyword(lowerText, 'packing')) return 40;
                 return 45;
             }
-            
+
             // Deep work (90+ min)
             const deepKeywords = ['build', 'code', 'develop', 'design', 'create', 'research',
                                   'deep work', 'project', 'presentation', 'analyze'];
-            if (deepKeywords.some(kw => lowerText.includes(kw))) return 90;
+            if (deepKeywords.some(kw => matchesKeyword(lowerText, kw))) return 90;
 
             // No keyword match - fall back based on estimated energy so tasks
             // don't all collapse to the same default duration
@@ -880,18 +888,18 @@
         // AI: Estimate energy required (1=Low, 2=Medium, 3=High)
         function estimateEnergy(text) {
             const lowerText = text.toLowerCase();
-            
+
             // Low energy (1)
-            const lowKeywords = ['email', 'reply', 'text', 'message', 'pay', 'confirm', 
+            const lowKeywords = ['email', 'reply', 'text', 'message', 'pay', 'confirm',
                                 'drink', 'water', 'snack', 'check', 'scroll', 'watch', 'listen'];
-            if (lowKeywords.some(kw => lowerText.includes(kw))) return 1;
-            
+            if (lowKeywords.some(kw => matchesKeyword(lowerText, kw))) return 1;
+
             // High energy (3)
-            const highKeywords = ['build', 'code', 'develop', 'design', 'create', 'research', 
-                                 'deep work', 'project', 'presentation', 'analyze', 'write', 
+            const highKeywords = ['build', 'code', 'develop', 'design', 'create', 'research',
+                                 'deep work', 'project', 'presentation', 'analyze', 'write',
                                  'meeting', 'call', 'interview'];
-            if (highKeywords.some(kw => lowerText.includes(kw))) return 3;
-            
+            if (highKeywords.some(kw => matchesKeyword(lowerText, kw))) return 3;
+
             // Medium energy (2) - default
             return 2;
         }
@@ -901,7 +909,7 @@
             const lowerText = text.toLowerCase();
             const verbalKeywords = ['call', 'phone', 'ring up', 'voicemail',
                                     'speak to', 'speak with', 'talk to', 'talk with'];
-            return verbalKeywords.some(kw => lowerText.includes(kw));
+            return verbalKeywords.some(kw => matchesKeyword(lowerText, kw));
         }
 
         function durationOptionsHtml(current) {
@@ -1218,8 +1226,8 @@
                             onclick="event.stopPropagation(); togglePriority(${task.id})"
                             aria-label="Set priority to important">Important</button>
                     </div>
-                    <button class="btn-delete" 
-                        onclick="deleteTask(${task.id})"
+                    <button class="btn-delete"
+                        onclick="if (confirm('Delete this task?')) deleteTask(${task.id})"
                         aria-label="Delete task: ${task.text}">Delete</button>
                 </div>
                 `;
