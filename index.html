@@ -419,9 +419,13 @@
         .timeline-row {
             display: flex;
             align-items: stretch;
-            min-height: 34px;
-            border-bottom: 1px solid var(--border);
+            height: 32px;
+            border-bottom: 1px dashed #EDECE8;
             position: relative;
+        }
+
+        .timeline-row.hour-mark {
+            border-bottom: 1px solid var(--border);
         }
 
         .timeline-row:last-child {
@@ -433,33 +437,44 @@
             left: -65px;
             width: 58px;
             text-align: right;
-            font-size: 0.78rem;
+            font-size: 0.76rem;
             color: var(--text-secondary);
-            font-weight: 500;
-            padding-top: 4px;
+            padding-top: 2px;
+        }
+
+        .timeline-row.hour-mark .timeline-hour {
+            font-weight: 600;
+            color: var(--text);
         }
 
         .timeline-content {
             flex: 1;
-            padding: 5px 9px;
         }
 
+        /* Task blocks are positioned absolutely (top/height set inline in JS)
+           so a block's height reflects its actual duration, not a fixed slot size */
         .timeline-event {
+            position: absolute;
+            left: 65px;
+            right: 9px;
             background: #E0E7FF;
             border-left: 3px solid var(--primary);
             border-radius: 6px;
-            padding: 9px;
-            margin: 3px 0;
+            padding: 4px 9px;
             display: flex;
             align-items: center;
             gap: 9px;
-            transition: all 0.2s;
+            overflow: hidden;
+            transition: box-shadow 0.2s, transform 0.2s;
             cursor: move;
+            z-index: 2;
+            line-height: 1.2;
         }
 
         .timeline-event:hover {
             box-shadow: var(--shadow);
             transform: translateX(2px);
+            z-index: 3;
         }
 
         .timeline-event.dragging {
@@ -499,31 +514,6 @@
             text-decoration: line-through;
         }
 
-        /* Thin bar shown in slots a longer task continues through, so the
-           slot still reads as occupied without repeating the full card */
-        .timeline-event-continuation {
-            height: 8px;
-            border-radius: 4px;
-            margin: 3px 0;
-            opacity: 0.5;
-        }
-
-        .timeline-event-continuation.important {
-            background: #F59E0B;
-        }
-
-        .timeline-event-continuation.flexible {
-            background: var(--primary);
-        }
-
-        .timeline-event-continuation.dopamine {
-            background: #EC4899;
-        }
-
-        .timeline-event-continuation.verbal-flag {
-            background: #FB923C;
-        }
-
         .timeline-checkbox {
             width: 18px;
             height: 18px;
@@ -533,6 +523,7 @@
 
         .timeline-event-content {
             flex: 1;
+            min-width: 0;
         }
 
         .timeline-event-title {
@@ -540,6 +531,9 @@
             font-weight: 600;
             color: var(--text);
             margin-bottom: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .timeline-event-time {
@@ -857,8 +851,11 @@
         // energy level, so it matches whatever hours someone actually works.
         let scheduleStartTime = 540;
 
-        // Timeline is rendered in 30-minute slots
+        // Timeline is rendered in 30-minute slots, each this many pixels tall.
+        // Task blocks are positioned/sized in JS using this same value, so a
+        // block's height always reflects its actual duration on-screen.
         const SLOT_MINUTES = 30;
+        const ROW_HEIGHT_PX = 44;
 
         // Energy capacity in minutes for the day - HARD CODED LIMITS
         const ENERGY_CAPACITY = {
@@ -1408,64 +1405,61 @@
             const minSlot = Math.floor(earliestStart / SLOT_MINUTES) * SLOT_MINUTES;
             const maxSlot = Math.ceil(latestEnd / SLOT_MINUTES) * SLOT_MINUTES;
 
+            // The background grid: empty rows that act as drop targets and draw the
+            // gridlines. Actual task cards are rendered separately as absolutely
+            // positioned blocks so their height can reflect their real duration.
             let html = '';
             for (let slotStart = minSlot; slotStart < maxSlot; slotStart += SLOT_MINUTES) {
-                const slotEnd = slotStart + SLOT_MINUTES;
-                // Tasks that overlap this slot at all (may have started in an earlier slot)
-                const eventsInSlot = schedule.filter(s => s.startTime < slotEnd && s.endTime > slotStart);
-
-                html += `<div class="timeline-row"
+                const isHourMark = slotStart % 60 === 0;
+                html += `<div class="timeline-row ${isHourMark ? 'hour-mark' : ''}"
                     role="row"
                     ondragover="handleDragOver(event)"
                     ondrop="handleDrop(event, ${slotStart})"
                     ondragleave="handleDragLeave(event)"
                     aria-label="Time slot: ${formatTime(slotStart)}">
-                    <div class="timeline-hour" role="columnheader">${formatTime(slotStart)}</div>
-                    <div class="timeline-content" role="cell">`;
-
-                eventsInSlot.forEach(event => {
-                    const flaggedVerbal = communicationMode === 'nonverbal' && isVerbalTask(event.task.text);
-                    const taskClass = flaggedVerbal ? 'verbal-flag' : (event.task.dopamine ? 'dopamine' : event.task.priority);
-
-                    // This slot is where the task starts - render the full card
-                    if (event.startTime >= slotStart && event.startTime < slotEnd) {
-                        const energyLabel = getEnergyLabel(event.task.energyRequired || 2);
-                        const taskId = event.task.id;
-                        html += `
-                            <div class="timeline-event ${taskClass} ${event.task.completed ? 'completed' : ''}"
-                                draggable="true"
-                                role="button"
-                                tabindex="0"
-                                aria-label="Task: ${event.task.text}, ${event.startTimeStr} to ${event.endTimeStr}, ${event.duration} minutes, ${energyLabel} energy${flaggedVerbal ? ', requires talking' : ''}. Drag to move or press space to toggle completion."
-                                aria-grabbed="false"
-                                ondragstart="handleDragStart(event, ${taskId})"
-                                ondragend="handleDragEnd(event)"
-                                onkeydown="handleTaskKeydown(event, ${taskId})">
-                                <input type="checkbox"
-                                    class="timeline-checkbox"
-                                    id="task-checkbox-${taskId}"
-                                    ${event.task.completed ? 'checked' : ''}
-                                    onchange="toggleTaskComplete(${taskId})"
-                                    onclick="event.stopPropagation()"
-                                    aria-label="Mark ${event.task.text} as ${event.task.completed ? 'incomplete' : 'complete'}">
-                                <div class="timeline-event-content">
-                                    <div class="timeline-event-title">${event.task.text}</div>
-                                    <div class="timeline-event-time">
-                                        ${event.startTimeStr} - ${event.endTimeStr} • ${event.duration} min • ⚡ ${energyLabel}
-                                    </div>
-                                    ${flaggedVerbal ? `<div class="verbal-flag-note" role="status">🔇 Requires talking — consider rescheduling</div>` : ''}
-                                </div>
-                            </div>
-                        `;
-                    } else {
-                        // Task started in an earlier slot and is still running through
-                        // this one - show a thin continuation bar so the slot reads as occupied
-                        html += `<div class="timeline-event-continuation ${taskClass}" aria-hidden="true"></div>`;
-                    }
-                });
-
-                html += `</div></div>`;
+                    <div class="timeline-hour" role="columnheader">${isHourMark ? formatTime(slotStart) : ''}</div>
+                    <div class="timeline-content" role="cell"></div>
+                </div>`;
             }
+
+            // Task blocks, one per event, height proportional to its actual duration
+            schedule.forEach(event => {
+                const flaggedVerbal = communicationMode === 'nonverbal' && isVerbalTask(event.task.text);
+                const taskClass = flaggedVerbal ? 'verbal-flag' : (event.task.dopamine ? 'dopamine' : event.task.priority);
+                const energyLabel = getEnergyLabel(event.task.energyRequired || 2);
+                const taskId = event.task.id;
+
+                const topPx = ((event.startTime - minSlot) / SLOT_MINUTES) * ROW_HEIGHT_PX;
+                const heightPx = Math.max(ROW_HEIGHT_PX - 4, (event.duration / SLOT_MINUTES) * ROW_HEIGHT_PX - 4);
+
+                html += `
+                    <div class="timeline-event ${taskClass} ${event.task.completed ? 'completed' : ''}"
+                        style="top: ${topPx}px; height: ${heightPx}px;"
+                        draggable="true"
+                        role="button"
+                        tabindex="0"
+                        aria-label="Task: ${event.task.text}, ${event.startTimeStr} to ${event.endTimeStr}, ${event.duration} minutes, ${energyLabel} energy${flaggedVerbal ? ', requires talking' : ''}. Drag to move or press space to toggle completion."
+                        aria-grabbed="false"
+                        ondragstart="handleDragStart(event, ${taskId})"
+                        ondragend="handleDragEnd(event)"
+                        onkeydown="handleTaskKeydown(event, ${taskId})">
+                        <input type="checkbox"
+                            class="timeline-checkbox"
+                            id="task-checkbox-${taskId}"
+                            ${event.task.completed ? 'checked' : ''}
+                            onchange="toggleTaskComplete(${taskId})"
+                            onclick="event.stopPropagation()"
+                            aria-label="Mark ${event.task.text} as ${event.task.completed ? 'incomplete' : 'complete'}">
+                        <div class="timeline-event-content">
+                            <div class="timeline-event-title">${event.task.text}</div>
+                            <div class="timeline-event-time">
+                                ${event.startTimeStr} - ${event.endTimeStr} • ${event.duration} min • ⚡ ${energyLabel}
+                            </div>
+                            ${flaggedVerbal ? `<div class="verbal-flag-note" role="status">🔇 Requires talking — consider rescheduling</div>` : ''}
+                        </div>
+                    </div>
+                `;
+            });
 
             // Show energy capacity used
             html += `
@@ -1742,7 +1736,7 @@
                 recognition.stop();
                 btn.classList.remove('recording');
                 btn.setAttribute('aria-pressed', 'false');
-                btn.setAttribute('aria-label', 'Start voice recording. Click to stop recording.');
+                btn.setAttribute('aria-label', 'Start voice recording. Click to record your tasks using your microphone.');
                 
                 const area = document.getElementById('textInputArea');
                 area.classList.add('active');
