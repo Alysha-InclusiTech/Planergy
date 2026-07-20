@@ -419,7 +419,7 @@
         .timeline-row {
             display: flex;
             align-items: stretch;
-            min-height: 48px;
+            min-height: 34px;
             border-bottom: 1px solid var(--border);
             position: relative;
         }
@@ -497,6 +497,31 @@
 
         .timeline-event.completed .timeline-event-title {
             text-decoration: line-through;
+        }
+
+        /* Thin bar shown in slots a longer task continues through, so the
+           slot still reads as occupied without repeating the full card */
+        .timeline-event-continuation {
+            height: 8px;
+            border-radius: 4px;
+            margin: 3px 0;
+            opacity: 0.5;
+        }
+
+        .timeline-event-continuation.important {
+            background: #F59E0B;
+        }
+
+        .timeline-event-continuation.flexible {
+            background: var(--primary);
+        }
+
+        .timeline-event-continuation.dopamine {
+            background: #EC4899;
+        }
+
+        .timeline-event-continuation.verbal-flag {
+            background: #FB923C;
         }
 
         .timeline-checkbox {
@@ -716,8 +741,18 @@
                 <!-- 2. Today's Schedule -->
                 <div class="card" role="region" aria-labelledby="schedule-heading">
                     <h2 id="schedule-heading">Step 5: Your Adaptive Schedule for Today</h2>
-                    <p class="brain-dump-subtitle" style="margin-bottom: 18px;">Drag tasks around as your energy changes</p>
-                    <div class="schedule-timeline" 
+                    <p class="brain-dump-subtitle" style="margin-bottom: 12px;">Drag tasks around as your energy changes</p>
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 18px;">
+                        <label for="scheduleStartInput" style="font-size: 0.82rem; color: var(--text-secondary);">Schedule starts at:</label>
+                        <input type="time"
+                            id="scheduleStartInput"
+                            value="09:00"
+                            step="1800"
+                            onchange="setScheduleStartTime(this.value)"
+                            aria-label="Time your schedule starts each day"
+                            style="padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.85rem; color: var(--text);">
+                    </div>
+                    <div class="schedule-timeline"
                         id="schedule"
                         role="table"
                         aria-label="Today's schedule timeline">
@@ -816,14 +851,22 @@
         let editingDopamineId = null;
         let dopamineSectionOpen = false;
         let draggedTaskId = null;
-        
+
+        // When the schedule starts, in minutes from midnight (default 9:00 AM).
+        // Set by the user via the "Schedule starts at" control - independent of
+        // energy level, so it matches whatever hours someone actually works.
+        let scheduleStartTime = 540;
+
+        // Timeline is rendered in 30-minute slots
+        const SLOT_MINUTES = 30;
+
         // Energy capacity in minutes for the day - HARD CODED LIMITS
-        const ENERGY_CAPACITY = { 
+        const ENERGY_CAPACITY = {
             1: 80,   // Low energy: max 80 minutes
             2: 120,  // Medium energy: max 120 minutes
             3: 300   // High energy: max 300 minutes
         };
-        
+
         let dopamineItems = [
             { id: 'dop1', text: 'Watch favorite comfort show', duration: 20 },
             { id: 'dop2', text: 'Listen to favorite playlist', duration: 15 },
@@ -945,6 +988,20 @@
             return 'High';
         }
 
+        function minutesToTimeInputValue(minutes) {
+            const h = Math.floor(minutes / 60);
+            const m = minutes % 60;
+            return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+        }
+
+        function setScheduleStartTime(timeStr) {
+            const [h, m] = timeStr.split(':').map(Number);
+            if (Number.isNaN(h) || Number.isNaN(m)) return;
+            scheduleStartTime = h * 60 + m;
+            generateSchedule();
+            saveData();
+        }
+
         function loadData() {
             const saved = localStorage.getItem('ndPlannerData');
             if (saved) {
@@ -953,11 +1010,14 @@
                 energyLevel = data.energyLevel || 'medium';
                 communicationMode = data.communicationMode || 'verbal';
                 dopamineSectionOpen = data.dopamineSectionOpen || false;
+                scheduleStartTime = data.scheduleStartTime !== undefined ? data.scheduleStartTime : 540;
                 if (data.dopamineItems) dopamineItems = data.dopamineItems;
-                
+
+                document.getElementById('scheduleStartInput').value = minutesToTimeInputValue(scheduleStartTime);
+
                 setEnergy(energyLevel);
                 setCommunicationMode(communicationMode);
-                
+
                 if (dopamineSectionOpen) {
                     const content = document.getElementById('dopamineContent');
                     const icon = document.getElementById('dopamineToggleIcon');
@@ -966,7 +1026,7 @@
                     icon.textContent = '▲';
                     if (header) header.setAttribute('aria-expanded', 'true');
                 }
-                
+
                 renderTasks();
                 renderDopamineMenu();
                 generateSchedule();
@@ -977,7 +1037,7 @@
 
         function saveData() {
             localStorage.setItem('ndPlannerData', JSON.stringify({
-                tasks, energyLevel, communicationMode, dopamineItems, dopamineSectionOpen
+                tasks, energyLevel, communicationMode, dopamineItems, dopamineSectionOpen, scheduleStartTime
             }));
         }
 
@@ -1014,34 +1074,39 @@
             });
         }
 
-        function handleDrop(event, targetHour) {
+        function handleDrop(event, targetSlotStart) {
             event.preventDefault();
             event.stopPropagation();
-            
+
             if (!draggedTaskId) return;
-            
+
             const task = tasks.find(t => t.id === draggedTaskId);
             if (!task) return;
-            
-            // Calculate the new start time based on the hour
-            const newStartTime = targetHour * 60; // Convert hour to minutes
-            
-            // Validate: check if task fits in energy capacity
-            const userEnergyLevel = energyLevel === 'low' ? 1 : energyLevel === 'medium' ? 2 : 3;
-            const totalCapacity = ENERGY_CAPACITY[userEnergyLevel];
-            
-            // Calculate total used time
-            const otherTasks = tasks.filter(t => t.id !== draggedTaskId && t.scheduledTime !== undefined);
-            const otherTasksTime = otherTasks.reduce((sum, t) => sum + (t.duration || 30), 0);
+
+            const newStartTime = targetSlotStart;
             const taskDuration = task.duration || 30;
-            
+            const newEndTime = newStartTime + taskDuration;
+
+            // Compute where every OTHER task actually sits so we can check this
+            // drop against real time ranges, not just a total-minutes budget
+            const otherTasks = tasks.filter(t => t.id !== draggedTaskId);
+            const { schedule: otherSchedule, totalUsed: otherTasksTime, totalCapacity } = computeSchedule(otherTasks);
+
+            const overlaps = otherSchedule.some(s => newStartTime < s.endTime && newEndTime > s.startTime);
+            if (overlaps) {
+                alert('That time already has another task scheduled!');
+                draggedTaskId = null;
+                generateSchedule();
+                return;
+            }
+
             if (otherTasksTime + taskDuration > totalCapacity) {
                 alert('Moving this task would exceed your energy capacity!');
                 draggedTaskId = null;
                 generateSchedule();
                 return;
             }
-            
+
             // Store the new scheduled time in the task
             task.scheduledTime = newStartTime;
             
@@ -1237,20 +1302,16 @@
             saveData();
         }
 
-        function generateSchedule() {
-            const container = document.getElementById('schedule');
-            if (tasks.length === 0) {
-                container.innerHTML = '<div class="empty-state" role="status" aria-live="polite">Add tasks to generate your schedule!</div>';
-                return;
-            }
-
-            // Get user's energy level (1=low, 2=medium, 3=high)
+        // Compute the schedule (manually-placed + auto-placed tasks) without touching
+        // the DOM. Shared by generateSchedule() (rendering) and handleDrop() (overlap
+        // checks), so both always agree on what's actually occupying what time.
+        function computeSchedule(taskList) {
+            const list = taskList || tasks;
             const userEnergyLevel = energyLevel === 'low' ? 1 : energyLevel === 'medium' ? 2 : 3;
             const totalCapacity = ENERGY_CAPACITY[userEnergyLevel];
 
-            // Separate tasks with manual scheduling from auto-scheduled
-            const manuallyScheduled = tasks.filter(t => t.scheduledTime !== undefined);
-            const autoScheduled = tasks.filter(t => t.scheduledTime === undefined);
+            const manuallyScheduled = list.filter(t => t.scheduledTime !== undefined);
+            const autoScheduled = list.filter(t => t.scheduledTime === undefined);
 
             // Sort auto-scheduled: important first
             const sortedAutoTasks = [...autoScheduled].sort((a, b) => {
@@ -1259,15 +1320,14 @@
                 return 0;
             });
 
-            // Build schedule array
             const schedule = [];
-            
+
             // Add manually scheduled tasks first
             manuallyScheduled.forEach(task => {
                 const taskDuration = task.duration || 30;
                 const start = task.scheduledTime;
                 const end = start + taskDuration;
-                
+
                 schedule.push({
                     task,
                     startTime: start,
@@ -1279,31 +1339,30 @@
                 });
             });
 
-            // Auto-schedule remaining tasks
-            let startHour = energyLevel === 'low' ? 10 : energyLevel === 'medium' ? 9 : 8;
-            let currentTime = startHour * 60;
+            // Auto-schedule remaining tasks, starting from the user-set schedule start time
+            let currentTime = scheduleStartTime;
             let totalUsed = manuallyScheduled.reduce((sum, t) => sum + (t.duration || 30), 0);
 
             for (const task of sortedAutoTasks) {
                 const taskDuration = task.duration || 30;
-                
+
                 // Check if adding this task would exceed capacity
                 if (totalUsed + taskDuration <= totalCapacity) {
                     // Find next available time slot (avoid conflicts with manually scheduled)
-                    const conflicts = schedule.filter(s => 
+                    const conflicts = schedule.filter(s =>
                         (currentTime >= s.startTime && currentTime < s.endTime) ||
                         (currentTime + taskDuration > s.startTime && currentTime < s.endTime)
                     );
-                    
+
                     if (conflicts.length > 0) {
                         // Move to after the last conflict
                         const lastConflict = conflicts.reduce((max, s) => s.endTime > max ? s.endTime : max, 0);
                         currentTime = lastConflict + 15; // 15 min break
                     }
-                    
+
                     const start = currentTime;
                     const end = currentTime + taskDuration;
-                    
+
                     schedule.push({
                         task,
                         startTime: start,
@@ -1313,7 +1372,7 @@
                         duration: taskDuration,
                         isManual: false
                     });
-                    
+
                     totalUsed += taskDuration;
                     currentTime = end + 15; // 15 min break
                 }
@@ -1322,46 +1381,56 @@
                 // stopping the whole schedule
             }
 
-            // Sort schedule by start time
             schedule.sort((a, b) => a.startTime - b.startTime);
+
+            return { schedule, totalUsed, totalCapacity };
+        }
+
+        function generateSchedule() {
+            const container = document.getElementById('schedule');
+            if (tasks.length === 0) {
+                container.innerHTML = '<div class="empty-state" role="status" aria-live="polite">Add tasks to generate your schedule!</div>';
+                return;
+            }
+
+            const { schedule, totalUsed, totalCapacity } = computeSchedule();
 
             if (schedule.length === 0) {
                 container.innerHTML = '<div class="empty-state" role="status" aria-live="polite">No tasks fit your energy capacity today. Try adjusting your energy level!</div>';
                 return;
             }
 
-            // Always show 8am to 9pm (full day view) - 8am covers the
-            // earliest possible auto-schedule start (High energy starts at 8am),
-            // so no scheduled task is ever hidden above the visible range
-            const minHour = 8;
-            const maxHour = 21; // 9pm
+            // Display window covers the configured start time through at least 9pm,
+            // widened to fit anything scheduled outside that range (e.g. a task
+            // manually dragged earlier, or a day that runs past 9pm)
+            const earliestStart = Math.min(scheduleStartTime, ...schedule.map(s => s.startTime));
+            const latestEnd = Math.max(21 * 60, ...schedule.map(s => s.endTime));
+            const minSlot = Math.floor(earliestStart / SLOT_MINUTES) * SLOT_MINUTES;
+            const maxSlot = Math.ceil(latestEnd / SLOT_MINUTES) * SLOT_MINUTES;
 
             let html = '';
-            for (let hour = minHour; hour <= maxHour; hour++) {
-                const hourStart = hour * 60;
-                const hourEnd = (hour + 1) * 60;
-                const eventsInHour = schedule.filter(s => 
-                    (s.startTime >= hourStart && s.startTime < hourEnd) ||
-                    (s.endTime > hourStart && s.endTime <= hourEnd) ||
-                    (s.startTime <= hourStart && s.endTime >= hourEnd)
-                );
+            for (let slotStart = minSlot; slotStart < maxSlot; slotStart += SLOT_MINUTES) {
+                const slotEnd = slotStart + SLOT_MINUTES;
+                // Tasks that overlap this slot at all (may have started in an earlier slot)
+                const eventsInSlot = schedule.filter(s => s.startTime < slotEnd && s.endTime > slotStart);
 
-                html += `<div class="timeline-row" 
+                html += `<div class="timeline-row"
                     role="row"
-                    ondragover="handleDragOver(event)" 
-                    ondrop="handleDrop(event, ${hour})"
+                    ondragover="handleDragOver(event)"
+                    ondrop="handleDrop(event, ${slotStart})"
                     ondragleave="handleDragLeave(event)"
-                    aria-label="Time slot: ${formatTime(hourStart)}">
-                    <div class="timeline-hour" role="columnheader">${formatTime(hourStart)}</div>
+                    aria-label="Time slot: ${formatTime(slotStart)}">
+                    <div class="timeline-hour" role="columnheader">${formatTime(slotStart)}</div>
                     <div class="timeline-content" role="cell">`;
-                
-                eventsInHour.forEach(event => {
-                    if (Math.floor(event.startTime / 60) === hour) {
+
+                eventsInSlot.forEach(event => {
+                    const flaggedVerbal = communicationMode === 'nonverbal' && isVerbalTask(event.task.text);
+                    const taskClass = flaggedVerbal ? 'verbal-flag' : (event.task.dopamine ? 'dopamine' : event.task.priority);
+
+                    // This slot is where the task starts - render the full card
+                    if (event.startTime >= slotStart && event.startTime < slotEnd) {
                         const energyLabel = getEnergyLabel(event.task.energyRequired || 2);
                         const taskId = event.task.id;
-                        const isCompleted = event.task.completed ? 'true' : 'false';
-                        const flaggedVerbal = communicationMode === 'nonverbal' && isVerbalTask(event.task.text);
-                        const taskClass = flaggedVerbal ? 'verbal-flag' : (event.task.dopamine ? 'dopamine' : event.task.priority);
                         html += `
                             <div class="timeline-event ${taskClass} ${event.task.completed ? 'completed' : ''}"
                                 draggable="true"
@@ -1388,12 +1457,16 @@
                                 </div>
                             </div>
                         `;
+                    } else {
+                        // Task started in an earlier slot and is still running through
+                        // this one - show a thin continuation bar so the slot reads as occupied
+                        html += `<div class="timeline-event-continuation ${taskClass}" aria-hidden="true"></div>`;
                     }
                 });
-                
+
                 html += `</div></div>`;
             }
-            
+
             // Show energy capacity used
             html += `
                 <div style="margin-top: 20px; padding: 16px; background: var(--bg); border-radius: 8px; font-size: 0.85rem;" role="status" aria-live="polite">
@@ -1403,7 +1476,7 @@
                     </div>
                 </div>
             `;
-            
+
             container.innerHTML = html;
         }
 
