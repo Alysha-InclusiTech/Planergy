@@ -1432,13 +1432,21 @@
                 const topPx = ((event.startTime - minSlot) / SLOT_MINUTES) * ROW_HEIGHT_PX;
                 const heightPx = Math.max(ROW_HEIGHT_PX - 4, (event.duration / SLOT_MINUTES) * ROW_HEIGHT_PX - 4);
 
+                // Fold the verbal-flag note into the time line rather than adding a
+                // 3rd line - a block's height is tied to its real duration, so an
+                // extra line here could visually collide with whatever task starts
+                // right after it instead of just growing safely.
+                const timeLine = flaggedVerbal
+                    ? `${event.startTimeStr} - ${event.endTimeStr} • ${event.duration} min • 🔇 Requires talking`
+                    : `${event.startTimeStr} - ${event.endTimeStr} • ${event.duration} min • ⚡ ${energyLabel}`;
+
                 html += `
                     <div class="timeline-event ${taskClass} ${event.task.completed ? 'completed' : ''}"
                         style="top: ${topPx}px; height: ${heightPx}px;"
                         draggable="true"
                         role="button"
                         tabindex="0"
-                        aria-label="Task: ${event.task.text}, ${event.startTimeStr} to ${event.endTimeStr}, ${event.duration} minutes, ${energyLabel} energy${flaggedVerbal ? ', requires talking' : ''}. Drag to move or press space to toggle completion."
+                        aria-label="Task: ${event.task.text}, ${event.startTimeStr} to ${event.endTimeStr}, ${event.duration} minutes, ${energyLabel} energy${flaggedVerbal ? ', requires talking, consider rescheduling' : ''}. Drag to move or press space to toggle completion."
                         aria-grabbed="false"
                         ondragstart="handleDragStart(event, ${taskId})"
                         ondragend="handleDragEnd(event)"
@@ -1452,10 +1460,7 @@
                             aria-label="Mark ${event.task.text} as ${event.task.completed ? 'incomplete' : 'complete'}">
                         <div class="timeline-event-content">
                             <div class="timeline-event-title">${event.task.text}</div>
-                            <div class="timeline-event-time">
-                                ${event.startTimeStr} - ${event.endTimeStr} • ${event.duration} min • ⚡ ${energyLabel}
-                            </div>
-                            ${flaggedVerbal ? `<div class="verbal-flag-note" role="status">🔇 Requires talking — consider rescheduling</div>` : ''}
+                            <div class="timeline-event-time">${timeLine}</div>
                         </div>
                     </div>
                 `;
